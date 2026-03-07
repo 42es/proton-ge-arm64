@@ -4,7 +4,7 @@ Apply and verify additional BYLAWS patch chain pieces that commonly drift on
 bleeding-edge and can cause runtime hangs if partially missing.
 
 Usage: fix_test_bylaws_chain.py <wine-source-dir>
-Script rev: 2026-03-06-driftproof-v1
+Script rev: 2026-03-07-dedupefix-v2
 """
 import os
 import re
@@ -490,7 +490,7 @@ def main():
         return 1
 
     wine_src = os.path.abspath(sys.argv[1])
-    print(f"fix_test_bylaws_chain: rev=2026-03-06-driftproof-v1 wine_src={wine_src}")
+    print(f"fix_test_bylaws_chain: rev=2026-03-07-dedupefix-v2 wine_src={wine_src}")
     patch_dir = os.path.join(wine_src, "android", "patches", "test-bylaws")
 
     if not os.path.isdir(patch_dir):
@@ -536,3 +536,4 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
