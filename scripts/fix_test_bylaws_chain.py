@@ -7,6 +7,7 @@ Usage: fix_test_bylaws_chain.py <wine-source-dir>
 Script rev: 2026-03-06-driftproof-v1
 """
 import os
+import re
 import subprocess
 import sys
 
@@ -127,15 +128,14 @@ def find_function_block(text, start_idx):
     return -1, -1
 
 
-def dedupe_function(text, signature):
-    starts = []
-    pos = 0
-    while True:
-        idx = text.find(signature, pos)
-        if idx < 0:
-            break
-        starts.append(idx)
-        pos = idx + len(signature)
+def dedupe_function(text, func_name):
+    pattern = re.compile(
+        r"(^[ \t]*(?:static[ \t]+)?(?:NTSTATUS[ \t]+WINAPI[ \t]+|void[ \t]+)?"
+        + re.escape(func_name)
+        + r"[ \t]*\()",
+        re.MULTILINE,
+    )
+    starts = [m.start(1) for m in pattern.finditer(text)]
 
     if len(starts) <= 1:
         return text, 0
@@ -150,7 +150,6 @@ def dedupe_function(text, signature):
 
     return text, removed
 
-
 def normalize_signal_duplicates(wine_src):
     notes = []
     files = [
@@ -159,8 +158,8 @@ def normalize_signal_duplicates(wine_src):
         "dlls/ntdll/signal_x86_64.c",
     ]
     signatures = [
-        "static void suspend_remote_breakin( HANDLE thread )",
-        "NTSTATUS WINAPI RtlWow64SuspendThread( HANDLE thread, ULONG *count )",
+        "suspend_remote_breakin",
+        "RtlWow64SuspendThread",
     ]
 
     for rel in files:
