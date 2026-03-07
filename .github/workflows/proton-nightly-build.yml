@@ -21,21 +21,24 @@ on:
         options:
           - app.gamenative
           - com.winlator.cmod
-      source_repo:
-        description: 'Base Proton source repository'
-        required: false
-        default: 'https://github.com/GloriousEggroll/proton-ge-custom'
-        type: string
       wine_ref:
-        description: 'Base Proton/Wine ref (branch/tag/commit)'
+        description: 'Valve wine ref (branch/tag/commit)'
         required: false
-        default: 'GE-Proton10-10'
+        default: 'proton_10.0'
         type: string
       gamenative_ref:
         description: 'GameNative proton-wine ref (branch/tag/commit)'
         required: false
         default: 'proton_10.0'
         type: string
+      ge_patch_mode:
+        description: 'Apply curated GE donor patch pack'
+        required: false
+        default: 'firstpass'
+        type: choice
+        options:
+          - 'firstpass'
+          - 'off'
       kernel_compat_wcp_url:
         description: 'Optional URL to known-good donor .wcp for kernel32/ntdll overlay'
         required: false
@@ -100,50 +103,19 @@ jobs:
             python3-zstandard \
             patch
 
-      - name: Clone base Wine source for GE track
+      - name: Clone Wine source (ValveSoftware proton_10.0 by default)
         run: |
-          rm -rf wine-source source-root
-          SOURCE_REPO="${{ github.event.inputs.source_repo || 'https://github.com/GloriousEggroll/proton-ge-custom' }}"
-          WINE_REF="${{ github.event.inputs.wine_ref || 'GE-Proton10-10' }}"
-          git clone --depth=1 --recurse-submodules --shallow-submodules --branch "$WINE_REF" \
-            "$SOURCE_REPO" source-root \
+          rm -rf wine-source
+          WINE_REF="${{ github.event.inputs.wine_ref || 'proton_10.0' }}"
+          git clone --depth=1 --branch "$WINE_REF" \
+            https://github.com/ValveSoftware/wine wine-source \
           || {
-            git clone --depth=1 --recurse-submodules --shallow-submodules "$SOURCE_REPO" source-root
-            git -C source-root fetch --depth=1 origin "$WINE_REF"
-            git -C source-root checkout FETCH_HEAD
-            git -C source-root submodule update --init --depth=1 --recursive
+            git clone --depth=1 https://github.com/ValveSoftware/wine wine-source
+            git -C wine-source fetch --depth=1 origin "$WINE_REF"
+            git -C wine-source checkout FETCH_HEAD
           }
-          echo "Base source repo: $SOURCE_REPO"
-          echo "Base source ref: $WINE_REF"
-          git -C source-root rev-parse HEAD
-
-          if [ -f source-root/dlls/ntdll/loader.c ]; then
-            mv source-root wine-source
-          elif [ -f source-root/wine/dlls/ntdll/loader.c ]; then
-            cp -a source-root/wine wine-source
-          elif [ -f source-root/proton-wine/dlls/ntdll/loader.c ]; then
-            cp -a source-root/proton-wine wine-source
-          else
-            echo "ERROR: could not locate a Wine source tree in cloned GE repo"
-            find source-root -maxdepth 3 -type f | sed -n '1,120p'
-            exit 1
-          fi
-
-          test -f wine-source/dlls/winex11.drv/window.c || {
-            echo "ERROR: normalized wine-source tree is missing dlls/winex11.drv/window.c"
-            find wine-source/dlls -maxdepth 2 -type f | sed -n '1,120p'
-            exit 1
-          }
-
-          # Normalize imported GE wine tree into a standalone git repo so
-          # downstream git apply / reverse-check logic works even when the
-          # source came from a copied submodule checkout.
-          rm -rf wine-source/.git wine-source/.gitmodules
-          git init wine-source
-          git -C wine-source config user.email "actions@local"
-          git -C wine-source config user.name "GitHub Actions"
-          git -C wine-source add -A
-          git -C wine-source commit -qm "Normalize imported source tree"
+          echo "Wine ref: $WINE_REF"
+          git -C wine-source rev-parse HEAD
       - name: Clone GameNative patches and build scripts
         run: |
           GN_REF="${{ github.event.inputs.gamenative_ref || 'proton_10.0' }}"
@@ -193,39 +165,44 @@ jobs:
           if ! grep -q 'Script rev: 2026-03-06-driftproof-v1' scripts/fix_test_bylaws_chain.py; then echo 'ERROR: stale fix_test_bylaws_chain.py in runner'; exit 97; fi
           python3 scripts/fix_test_bylaws_chain.py wine-source
 
-          echo "Applying GE GameNative first-pass patch pack..."
-          GE_PATCH_ROOT="$GITHUB_WORKSPACE/patches/ge-gamenative-firstpass"
-          if [ ! -d "$GE_PATCH_ROOT" ]; then
-            echo "ERROR: missing GE patch root: $GE_PATCH_ROOT"
-            exit 1
-          fi
-
-          GE_PATCHES=(
-            "proton/fix-a-crash-in-ID2D1DeviceContext-if-no-target-is-set.patch"
-            "proton/0001-win32u-add-env-switch-to-disable-wm-decorations.patch"
-            "proton/83-nv_low_latency_wine.patch"
-            "wine-hotfixes/pending/unity_crash_hotfix.patch"
-            "wine-hotfixes/pending/registry_RRF_RT_REG_SZ-RRF_RT_REG_EXPAND_SZ.patch"
-            "wine-hotfixes/pending/ntdll_add_wine_disable_sfn.patch"
-            "wine-hotfixes/pending/NCryptDecrypt_implementation.patch"
-            "wine-hotfixes/pending/webview2.patch"
-            "wine-hotfixes/staging/cryptext-CryptExtOpenCER/0001.patch"
-            "wine-hotfixes/staging/wineboot-ProxySettings/0001.patch"
-            "proton/0001-fshack-Implement-AMD-FSR-upscaler-for-fullscreen-hac.patch"
-          )
-
-          for rel in "${GE_PATCHES[@]}"; do
-            patch="$GE_PATCH_ROOT/$rel"
-            echo "GE PATCH: $rel"
-            if ! git -C wine-source apply --ignore-whitespace -C1 "$patch"; then
-              if git -C wine-source apply --ignore-whitespace -C1 -R --check "$patch" 2>/dev/null; then
-                echo "GE PATCH already present: $rel"
-              else
-                echo "ERROR: GE first-pass patch failed: $rel"
-                exit 1
-              fi
+          GE_PATCH_MODE="${{ github.event.inputs.ge_patch_mode || 'firstpass' }}"
+          if [ "$GE_PATCH_MODE" = "firstpass" ]; then
+            echo "Applying GE donor first-pass patch pack..."
+            GE_PATCH_ROOT="$GITHUB_WORKSPACE/patches/ge-gamenative-firstpass"
+            if [ ! -d "$GE_PATCH_ROOT" ]; then
+              echo "ERROR: missing GE patch root: $GE_PATCH_ROOT"
+              exit 1
             fi
-          done
+
+            GE_PATCHES=(
+              "proton/fix-a-crash-in-ID2D1DeviceContext-if-no-target-is-set.patch"
+              "proton/0001-win32u-add-env-switch-to-disable-wm-decorations.patch"
+              "proton/83-nv_low_latency_wine.patch"
+              "wine-hotfixes/pending/unity_crash_hotfix.patch"
+              "wine-hotfixes/pending/registry_RRF_RT_REG_SZ-RRF_RT_REG_EXPAND_SZ.patch"
+              "wine-hotfixes/pending/ntdll_add_wine_disable_sfn.patch"
+              "wine-hotfixes/pending/NCryptDecrypt_implementation.patch"
+              "wine-hotfixes/pending/webview2.patch"
+              "wine-hotfixes/staging/cryptext-CryptExtOpenCER/0001.patch"
+              "wine-hotfixes/staging/wineboot-ProxySettings/0001.patch"
+              "proton/0001-fshack-Implement-AMD-FSR-upscaler-for-fullscreen-hac.patch"
+            )
+
+            for rel in "${GE_PATCHES[@]}"; do
+              patch="$GE_PATCH_ROOT/$rel"
+              echo "GE PATCH: $rel"
+              if ! git -C wine-source apply --ignore-whitespace -C1 "$patch"; then
+                if git -C wine-source apply --ignore-whitespace -C1 -R --check "$patch" 2>/dev/null; then
+                  echo "GE PATCH already present: $rel"
+                else
+                  echo "ERROR: GE donor patch failed: $rel"
+                  exit 1
+                fi
+              fi
+            done
+          else
+            echo "GE donor patch pack disabled"
+          fi
 
           # Rewrite the baked-in install prefix from the Termux CI path to the
           # Winlator Cmod path that GameNative rewrites at runtime via libredirect.
