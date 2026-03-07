@@ -167,7 +167,8 @@ jobs:
           # Apply suspend-bypass chain directly when test-bylaws patches drift.
           python3 scripts/fix_suspend_chain.py wine-source
 
-          # Force-apply additional BYLAWS drift-prone patches and verify markers.
+      - name: Run BYLAWS drift helper
+        run: |
           echo "=== fix_test_bylaws_chain.py header ==="
           sed -n '1,40p' scripts/fix_test_bylaws_chain.py
           if ! grep -q 'Script rev: 2026-03-06-driftproof-v1' scripts/fix_test_bylaws_chain.py; then echo 'ERROR: stale fix_test_bylaws_chain.py in runner'; exit 97; fi
