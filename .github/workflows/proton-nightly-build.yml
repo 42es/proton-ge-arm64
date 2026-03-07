@@ -102,19 +102,36 @@ jobs:
 
       - name: Clone base Wine source for GE track
         run: |
-          rm -rf wine-source
+          rm -rf wine-source source-root
           SOURCE_REPO="${{ github.event.inputs.source_repo || 'https://github.com/GloriousEggroll/proton-ge-custom' }}"
           WINE_REF="${{ github.event.inputs.wine_ref || 'GE-Proton10-10' }}"
-          git clone --depth=1 --branch "$WINE_REF" \
-            "$SOURCE_REPO" wine-source \
+          git clone --depth=1 --recurse-submodules --shallow-submodules --branch "$WINE_REF" \
+            "$SOURCE_REPO" source-root \
           || {
-            git clone --depth=1 "$SOURCE_REPO" wine-source
-            git -C wine-source fetch --depth=1 origin "$WINE_REF"
-            git -C wine-source checkout FETCH_HEAD
+            git clone --depth=1 --recurse-submodules --shallow-submodules "$SOURCE_REPO" source-root
+            git -C source-root fetch --depth=1 origin "$WINE_REF"
+            git -C source-root checkout FETCH_HEAD
+            git -C source-root submodule update --init --depth=1 --recursive
           }
           echo "Base source repo: $SOURCE_REPO"
           echo "Base source ref: $WINE_REF"
-          git -C wine-source rev-parse HEAD
+          git -C source-root rev-parse HEAD
+
+          if [ -f source-root/dlls/ntdll/loader.c ]; then
+            mv source-root wine-source
+          elif [ -f source-root/proton-wine/dlls/ntdll/loader.c ]; then
+            cp -a source-root/proton-wine wine-source
+          else
+            echo "ERROR: could not locate a Wine source tree in cloned GE repo"
+            find source-root -maxdepth 3 -type f | sed -n '1,120p'
+            exit 1
+          fi
+
+          test -f wine-source/dlls/winex11.drv/window.c || {
+            echo "ERROR: normalized wine-source tree is missing dlls/winex11.drv/window.c"
+            find wine-source/dlls -maxdepth 2 -type f | sed -n '1,120p'
+            exit 1
+          }
       - name: Clone GameNative patches and build scripts
         run: |
           GN_REF="${{ github.event.inputs.gamenative_ref || 'proton_10.0' }}"
