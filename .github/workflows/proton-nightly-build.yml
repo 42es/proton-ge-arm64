@@ -61,14 +61,6 @@ jobs:
       contents: write
 
     steps:
-      - name: DEBUG workflow identity
-        run: |
-          echo "WORKFLOW DEBUG MARKER 2026-03-07-B"
-          echo "WORKFLOW FILE=.github/workflows/proton-nightly-build.yml"
-          git rev-parse HEAD
-          pwd
-          ls -la .github/workflows
-
       - name: Free up disk space
         run: |
           sudo rm -rf /usr/share/dotnet
@@ -77,8 +69,20 @@ jobs:
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           df -h
 
+      - name: DEBUG workflow identity
+        run: |
+          echo "WORKFLOW DEBUG MARKER 2026-03-07-B"
+          echo "WORKFLOW FILE=.github/workflows/proton-nightly-build.yml"
+          echo "GITHUB_SHA=${GITHUB_SHA}"
+          pwd
+
       - name: Checkout this repo
         uses: actions/checkout@v4
+
+      - name: DEBUG checked-out repo
+        run: |
+          git rev-parse HEAD
+          ls -la .github/workflows
 
       - name: Set up build environment
         run: |
