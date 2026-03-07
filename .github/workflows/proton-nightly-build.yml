@@ -1,4 +1,4 @@
-name: GE-Proton ARM64 Build
+name: GE-Proton ARM64 Build DEBUG
 
 on:
   schedule:
@@ -61,6 +61,14 @@ jobs:
       contents: write
 
     steps:
+      - name: DEBUG workflow identity
+        run: |
+          echo "WORKFLOW DEBUG MARKER 2026-03-07-B"
+          echo "WORKFLOW FILE=.github/workflows/proton-nightly-build.yml"
+          git rev-parse HEAD
+          pwd
+          ls -la .github/workflows
+
       - name: Free up disk space
         run: |
           sudo rm -rf /usr/share/dotnet
@@ -531,5 +539,6 @@ jobs:
           rm -rf "$RUNNER_TEMP"/* || true
           echo "=== Disk usage after cleanup ==="
           df -h
+
 
 
