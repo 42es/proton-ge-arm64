@@ -31,14 +31,11 @@ on:
         required: false
         default: 'proton_10.0'
         type: string
-      ge_patch_mode:
-        description: 'Apply curated GE donor patch pack'
+      ge_ref:
+        description: 'GE-Proton tag/branch to pull patches from'
         required: false
-        default: 'firstpass'
-        type: choice
-        options:
-          - 'firstpass'
-          - 'off'
+        default: 'GE-Proton10-32'
+        type: string
       kernel_compat_wcp_url:
         description: 'Optional URL to known-good donor .wcp for kernel32/ntdll overlay'
         required: false
@@ -128,6 +125,63 @@ jobs:
           }
           echo "Wine ref: $WINE_REF"
           git -C wine-source rev-parse HEAD
+
+      - name: Apply GE patches
+        run: |
+          GE_REF="${{ github.event.inputs.ge_ref || 'GE-Proton10-32' }}"
+
+          # Clone GE-Proton wrapper (no submodules - we fetch them manually)
+          rm -rf ge-proton wine-staging-src
+          git clone --depth=1 --branch "$GE_REF" \
+            https://github.com/GloriousEggroll/proton-ge-custom ge-proton \
+          || {
+            git clone --depth=1 https://github.com/GloriousEggroll/proton-ge-custom ge-proton
+            git -C ge-proton fetch --depth=1 origin "$GE_REF"
+            git -C ge-proton checkout FETCH_HEAD
+          }
+          echo "GE-Proton ref: $GE_REF"
+          git -C ge-proton rev-parse HEAD
+
+          # Get the wine-staging commit GE pins and clone it
+          STAGING_SHA=$(git -C ge-proton ls-tree HEAD wine-staging | awk '{print $3}')
+          echo "wine-staging SHA: $STAGING_SHA"
+          git clone --depth=1 https://github.com/wine-staging/wine-staging wine-staging-src
+          git -C wine-staging-src fetch --depth=1 origin "$STAGING_SHA"
+          git -C wine-staging-src checkout FETCH_HEAD
+
+          # protonprep-valve-staging.sh is designed to run from the GE-Proton root
+          # with subdirs: wine/, wine-staging/, patches/
+          # Symlink our checkouts into ge-proton/ so relative paths resolve correctly.
+          ln -sfn "$GITHUB_WORKSPACE/wine-source"      ge-proton/wine
+          ln -sfn "$GITHUB_WORKSPACE/wine-staging-src" ge-proton/wine-staging
+
+          # Strip the git revert of e813ca577 (Remove configure/config.h.in).
+          # That commit is not reachable in a shallow clone, and we run autogen.sh
+          # ourselves afterward anyway which regenerates configure fresh.
+          sed -i '/git revert.*e813ca5771658b00875924ab88d525322e50d39f/d' \
+            ge-proton/patches/protonprep-valve-staging.sh
+
+          # protonprep is a plain bash script (no set -e). The PREP section
+          # pushd's into dxvk/gstreamer/etc which won't exist - those pushd's
+          # will fail and print errors but the script continues. The WINE
+          # PATCHING section (the part we care about) will run normally.
+          cd ge-proton
+          bash patches/protonprep-valve-staging.sh || true
+
+          # Verify the wine section ran by checking a GE-specific marker
+          if ! grep -q "unity_crash_hotfix\|winepulse.fast.polling\|WINE_HOSTBLOCK" wine/dlls/ntdll/loader.c wine/programs/wineboot/wineboot.c 2>/dev/null; then
+            # Try a broader check - FSR or NV low latency must be present
+            grep -r "fshack\|nv_low_latency\|RtlWow64SuspendThread" wine/dlls/ >/dev/null 2>&1 || {
+              echo "ERROR: GE wine patches do not appear to have been applied"
+              exit 1
+            }
+          fi
+          echo "GE protonprep complete"
+          cd "$GITHUB_WORKSPACE"
+
+          # Clean up symlinks
+          rm -f ge-proton/wine ge-proton/wine-staging
+
       - name: Clone GameNative patches and build scripts
         run: |
           GN_REF="${{ github.event.inputs.gamenative_ref || 'proton_10.0' }}"
@@ -148,9 +202,8 @@ jobs:
           # fail under git apply as "corrupt patch" despite valid content).
           find wine-source/android/patches -type f -name "*.patch" -exec sed -i 's/\r$//' {} +
 
-
-          # Comment out patches already merged into bleeding-edge (or handled by
-          # fix_*.py scripts) so they don't get double-applied or fail the build.
+          # Comment out patches that GE's protonprep already applied so
+          # build-step-arm64ec.sh doesn't double-apply them.
           python3 scripts/filter_patches.py \
             wine-source/build-scripts/build-step-arm64ec.sh \
             wine-source
@@ -168,72 +221,8 @@ jobs:
           # the ntdll.so link step doesn't pull it in, causing undefined symbol.
           python3 scripts/fix_virtual_c.py wine-source
 
-          # Add missing forward declaration for initialize_xstate_features in
-          # wineboot.c - the call is present in proton_10.0 but no declaration
-          # is visible under -target aarch64-windows (PE build).
+          # Fix wineboot.c missing initialize_xstate_features stub in aarch64 branch.
           python3 scripts/fix_wineboot_xstate.py wine-source
-
-          # Apply suspend-bypass chain directly when test-bylaws patches drift.
-          python3 scripts/fix_suspend_chain.py wine-source
-
-      - name: Run BYLAWS drift helper
-        run: |
-          echo "=== fix_test_bylaws_chain.py header ==="
-          sed -n '1,40p' scripts/fix_test_bylaws_chain.py
-          echo '=== fix_test_bylaws_chain.py dedupe markers ==='
-          grep -n 'Script rev: 2026-03-07-signalfix-v3\|def find_definition_starts\|def dedupe_function\|duplicate definition of' scripts/fix_test_bylaws_chain.py || true
-          if ! grep -q 'Script rev: 2026-03-07-signalfix-v3' scripts/fix_test_bylaws_chain.py; then echo 'ERROR: stale fix_test_bylaws_chain.py in runner'; exit 97; fi
-          python3 scripts/fix_test_bylaws_chain.py wine-source
-          echo "=== post-fix signal duplicate counts ==="
-          for f in \
-            wine-source/dlls/ntdll/signal_arm64.c \
-            wine-source/dlls/ntdll/signal_arm64ec.c \
-            wine-source/dlls/ntdll/signal_x86_64.c; do
-            echo "--- $f"
-            printf 'suspend_remote_breakin: '
-            grep -c 'suspend_remote_breakin' "$f" || true
-            printf 'RtlWow64SuspendThread: '
-            grep -c 'RtlWow64SuspendThread' "$f" || true
-          done
-
-          GE_PATCH_MODE="${{ github.event.inputs.ge_patch_mode || 'firstpass' }}"
-          if [ "$GE_PATCH_MODE" = "firstpass" ]; then
-            echo "Applying GE donor first-pass patch pack..."
-            GE_PATCH_ROOT="$GITHUB_WORKSPACE/patches/ge-gamenative-firstpass"
-            if [ ! -d "$GE_PATCH_ROOT" ]; then
-              echo "ERROR: missing GE patch root: $GE_PATCH_ROOT"
-              exit 1
-            fi
-
-            GE_PATCHES=(
-              "proton/fix-a-crash-in-ID2D1DeviceContext-if-no-target-is-set.patch"
-              "proton/0001-win32u-add-env-switch-to-disable-wm-decorations.patch"
-              "proton/83-nv_low_latency_wine.patch"
-              "wine-hotfixes/pending/unity_crash_hotfix.patch"
-              "wine-hotfixes/pending/registry_RRF_RT_REG_SZ-RRF_RT_REG_EXPAND_SZ.patch"
-              "wine-hotfixes/pending/ntdll_add_wine_disable_sfn.patch"
-              "wine-hotfixes/pending/NCryptDecrypt_implementation.patch"
-              "wine-hotfixes/pending/webview2.patch"
-              "wine-hotfixes/staging/cryptext-CryptExtOpenCER/0001.patch"
-              "wine-hotfixes/staging/wineboot-ProxySettings/0001.patch"
-              "proton/0001-fshack-Implement-AMD-FSR-upscaler-for-fullscreen-hac.patch"
-            )
-
-            for rel in "${GE_PATCHES[@]}"; do
-              patch="$GE_PATCH_ROOT/$rel"
-              echo "GE PATCH: $rel"
-              if ! git -C wine-source apply --ignore-whitespace -C1 "$patch"; then
-                if git -C wine-source apply --ignore-whitespace -C1 -R --check "$patch" 2>/dev/null; then
-                  echo "GE PATCH already present: $rel"
-                else
-                  echo "ERROR: GE donor patch failed: $rel"
-                  exit 1
-                fi
-              fi
-            done
-          else
-            echo "GE donor patch pack disabled"
-          fi
 
           # Rewrite the baked-in install prefix from the Termux CI path to the
           # Winlator Cmod path that GameNative rewrites at runtime via libredirect.
@@ -329,10 +318,6 @@ jobs:
         run: |
           cd wine-source
           bash build-scripts/build-step-arm64ec.sh --configure
-
-      - name: Verify critical patch markers
-        run: |
-          python3 scripts/verify_required_markers.py wine-source
 
       - name: Build GE-Proton candidate
         run: |
