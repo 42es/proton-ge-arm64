@@ -129,11 +129,11 @@ def find_function_block(text, start_idx):
 
 
 def find_definition_starts(text, func_name):
+    # Match actual function definitions by name: func_name(...) {
+    # ignoring return-type formatting drift and avoiding plain prototypes/calls.
     line_pattern = re.compile(
-        r"^[ \t]*(?:static[ \t]+)?(?:NTSTATUS[ \t]+WINAPI[ \t]+|void[ \t]+)?"
-        + re.escape(func_name)
-        + r"[ \t]*\(",
-        re.MULTILINE,
+        re.escape(func_name) + r"\s*\([^;{}]*\)\s*\{",
+        re.MULTILINE | re.DOTALL,
     )
     starts = []
     for m in line_pattern.finditer(text):
