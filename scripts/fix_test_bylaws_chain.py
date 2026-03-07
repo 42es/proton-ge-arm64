@@ -129,26 +129,17 @@ def find_function_block(text, start_idx):
 
 
 def find_definition_starts(text, func_name):
-    # Only count real function definitions, not prototypes or call sites.
-    # Strategy: find func_name( tokens, walk back to the containing line start,
-    # then require that the text from that line reaches a '{' before any ';'.
-    name_pattern = re.compile(r"\b" + re.escape(func_name) + r"\s*\(")
+    patterns = {
+        "suspend_remote_breakin": re.compile(r"^[ \t]*static[ \t]+void[ \t]+suspend_remote_breakin[ \t]*\(", re.MULTILINE),
+        "RtlWow64SuspendThread": re.compile(r"^[ \t]*NTSTATUS[ \t]+WINAPI[ \t]+RtlWow64SuspendThread[ \t]*\(", re.MULTILINE),
+    }
+    pattern = patterns.get(func_name)
+    if pattern is None:
+        pattern = re.compile(r"^[ \t].*\b" + re.escape(func_name) + r"[ \t]*\(", re.MULTILINE)
+
     starts = []
-    seen = set()
-    for m in name_pattern.finditer(text):
-        line_start = text.rfind("\n", 0, m.start()) + 1
-        if line_start in seen:
-            continue
-        seen.add(line_start)
-
-        probe = text[line_start:]
-        brace = probe.find("{")
-        semi = probe.find(";")
-        if brace < 0:
-            continue
-        if semi >= 0 and semi < brace:
-            continue
-
+    for m in pattern.finditer(text):
+        line_start = m.start()
         b0, b1 = find_function_block(text, line_start)
         if b0 == line_start and b1 > b0:
             starts.append(line_start)
