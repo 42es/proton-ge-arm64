@@ -129,12 +129,26 @@ def find_function_block(text, start_idx):
 
 
 def find_definition_starts(text, func_name):
-    # Find candidate occurrences by function-name token, then keep only entries
-    # that map to a real brace-delimited block starting from the containing line.
+    # Only count real function definitions, not prototypes or call sites.
+    # Strategy: find func_name( tokens, walk back to the containing line start,
+    # then require that the text from that line reaches a '{' before any ';'.
     name_pattern = re.compile(r"\b" + re.escape(func_name) + r"\s*\(")
     starts = []
+    seen = set()
     for m in name_pattern.finditer(text):
         line_start = text.rfind("\n", 0, m.start()) + 1
+        if line_start in seen:
+            continue
+        seen.add(line_start)
+
+        probe = text[line_start:]
+        brace = probe.find("{")
+        semi = probe.find(";")
+        if brace < 0:
+            continue
+        if semi >= 0 and semi < brace:
+            continue
+
         b0, b1 = find_function_block(text, line_start)
         if b0 == line_start and b1 > b0:
             starts.append(line_start)
