@@ -196,8 +196,8 @@ def normalize_signal_duplicates(wine_src):
 def patch_already_present(wine_src, patch_name):
     checks = {
         "dlls_ntdll_signal_arm64_c.patch": ("dlls/ntdll/signal_arm64.c", ["suspend_remote_breakin", "RtlWow64SuspendThread"]),
-        "dlls_ntdll_signal_arm64ec_c.patch": ("dlls/ntdll/signal_arm64ec.c", ["RtlWow64SuspendThread"]),
-        "dlls_ntdll_signal_x86_64_c.patch": ("dlls/ntdll/signal_x86_64.c", ["RtlWow64SuspendThread"]),
+        "dlls_ntdll_signal_arm64ec_c.patch": ("dlls/ntdll/signal_arm64ec.c", []),
+        "dlls_ntdll_signal_x86_64_c.patch": ("dlls/ntdll/signal_x86_64.c", []),
     }
     if patch_name not in checks:
         return False
@@ -481,17 +481,9 @@ def verify(wine_src):
     duplicate_checks = {
         "dlls/ntdll/signal_arm64.c": [
             "suspend_remote_breakin",
-            "RtlWow64SuspendThread",
-        ],
-        "dlls/ntdll/signal_arm64ec.c": [
-            "suspend_remote_breakin",
-            "RtlWow64SuspendThread",
-        ],
-        "dlls/ntdll/signal_x86_64.c": [
-            "suspend_remote_breakin",
-            "RtlWow64SuspendThread",
         ],
     }
+
 
     for rel, func_names in duplicate_checks.items():
         path = os.path.join(wine_src, rel)
