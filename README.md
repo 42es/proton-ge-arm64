@@ -38,9 +38,11 @@ This folder is an experimental track. The workflow is intended for manual iterat
 - [WCP_STRUCTURE.md](docs/WCP_STRUCTURE.md) — how the `.wcp` format works
 - [BUILD_REQUIREMENTS.md](docs/BUILD_REQUIREMENTS.md) — what you need to build locally
 - [BUILD_ISSUES.md](docs/BUILD_ISSUES.md) — known issues and fixes
+- [GE_PATCH_EXTRACTION.md](docs/GE_PATCH_EXTRACTION.md) — extract GE-only Wine patches for porting
 - [USER_GUIDE.md](docs/USER_GUIDE.md) — installation walkthrough
 - [DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) — how to contribute or fork
 
 ## License
 
 The scripts in this repo are MIT licensed. Wine itself is LGPL. See [LICENSE](LICENSE).
+

@@ -13,6 +13,8 @@ import sys
 
 PATCHES = [
     "dlls_ntdll_loader_c.patch",
+    "dlls_ntdll_unwind_h.patch",
+    "include_winnt_h.patch",
     "dlls_ntdll_ntdll_misc_h.patch",
     "dlls_ntdll_ntdll_spec.patch",
     "dlls_ntdll_signal_arm64_c.patch",
@@ -26,6 +28,12 @@ PATCHES = [
 
 # relative file -> markers that must all be present after patching
 REQUIRED_MARKERS = {
+    "dlls/ntdll/unwind.h": [
+        "CONTEXT_ARM64_FEX_YMMSTATE",
+    ],
+    "include/winnt.h": [
+        "CONTEXT_ARM64_FEX_YMMSTATE",
+    ],
     "dlls/ntdll/loader.c": [
         "pWow64SuspendLocalThread",
         "GET_PTR( Wow64SuspendLocalThread )",
@@ -196,6 +204,117 @@ def try_apply_patch(wine_src, patch_path):
     return False, out
 
 
+def fallback_fix_winnt(wine_src):
+    rel = "include/winnt.h"
+    path = os.path.join(wine_src, rel)
+    if not os.path.exists(path):
+        return [f"MISSING: {rel}"]
+
+    txt = read_text(path)
+    notes = []
+
+    replacements = [
+        (
+            "#define XSTATE_MASK_GSSE                    (1 << XSTATE_GSSE)\n",
+            "#define XSTATE_MASK_GSSE                    (1 << XSTATE_GSSE)\n\n"
+            "#define XSTATE_ARM64_SVE 2\n\n"
+            "#define XSTATE_MASK_ARM64_SVE (1 << XSTATE_ARM64_SVE)\n",
+            "XSTATE_ARM64_SVE",
+        ),
+        (
+            "XSAVE_AREA_HEADER, *PXSAVE_AREA_HEADER;\n",
+            "XSAVE_AREA_HEADER, *PXSAVE_AREA_HEADER;\n\n"
+            "typedef struct _XSAVE_ARM64_SVE_HEADER {\n"
+            "    ULONG VectorLength;\n"
+            "    ULONG VectorRegisterOffset;\n"
+            "    ULONG PredicateRegisterOffset;\n"
+            "    ULONG Reserved[5];\n"
+            "} XSAVE_ARM64_SVE_HEADER, *PXSAVE_ARM64_SVE_HEADER;\n",
+            "XSAVE_ARM64_SVE_HEADER",
+        ),
+        (
+            "#define CONTEXT_ARM64_X18       (CONTEXT_ARM64 | 0x00000010)\n",
+            "#define CONTEXT_ARM64_X18       (CONTEXT_ARM64 | 0x00000010)\n"
+            "#define CONTEXT_ARM64_XSTATE    (CONTEXT_ARM64 | 0x00000020)\n"
+            "#define CONTEXT_ARM64_FEX_YMMSTATE   (CONTEXT_ARM64 | 0x00000040)\n",
+            "CONTEXT_ARM64_FEX_YMMSTATE",
+        ),
+    ]
+
+    for old, new, marker in replacements:
+        if marker in txt:
+            continue
+        txt2, ok, _ = apply_once(txt, old, new)
+        if ok:
+            txt = txt2
+            notes.append(f"FIXED: {rel} add {marker}")
+        else:
+            notes.append(f"WARN: {rel} could not place {marker}")
+
+    write_text(path, txt)
+    return notes
+
+
+def fallback_fix_unwind(wine_src):
+    rel = "dlls/ntdll/unwind.h"
+    path = os.path.join(wine_src, rel)
+    if not os.path.exists(path):
+        return [f"MISSING: {rel}"]
+
+    txt = read_text(path)
+    notes = []
+
+    replacements = [
+        (
+            "    if (flags & CONTEXT_AMD64_FLOATING_POINT) ret |= CONTEXT_ARM64_FLOATING_POINT;\n",
+            "    if (flags & CONTEXT_AMD64_FLOATING_POINT) ret |= CONTEXT_ARM64_FLOATING_POINT;\n"
+            "    if (flags & CONTEXT_AMD64_XSTATE) ret |= CONTEXT_ARM64_FEX_YMMSTATE;\n",
+            "if (flags & CONTEXT_AMD64_XSTATE) ret |= CONTEXT_ARM64_FEX_YMMSTATE;",
+        ),
+        (
+            "    if (flags & CONTEXT_ARM64_FLOATING_POINT) ret |= CONTEXT_AMD64_FLOATING_POINT;\n",
+            "    if (flags & CONTEXT_ARM64_FLOATING_POINT) ret |= CONTEXT_AMD64_FLOATING_POINT;\n"
+            "    if (flags & CONTEXT_ARM64_FEX_YMMSTATE) ret |= CONTEXT_AMD64_XSTATE;\n",
+            "if (flags & CONTEXT_ARM64_FEX_YMMSTATE) ret |= CONTEXT_AMD64_XSTATE;",
+        ),
+        (
+            "    arm_ctx->Fpcr = fpcsr;\n    arm_ctx->Fpsr = fpcsr >> 32;\n",
+            "    arm_ctx->Fpcr = fpcsr;\n    arm_ctx->Fpsr = fpcsr >> 32;\n\n"
+            "    if ((ec_ctx->ContextFlags & CONTEXT_AMD64_XSTATE) == CONTEXT_AMD64_XSTATE)\n"
+            "    {\n"
+            "        CONTEXT_EX *ec_xctx = (CONTEXT_EX *)(ec_ctx + 1);\n"
+            "        YMMCONTEXT *ec_ymm = RtlLocateExtendedFeature( ec_xctx, XSTATE_AVX, NULL );\n"
+            "        memcpy( arm_ctx->V + 16, ec_ymm, sizeof(*ec_ymm) );\n"
+            "    }\n",
+            "memcpy( arm_ctx->V + 16, ec_ymm, sizeof(*ec_ymm) );",
+        ),
+        (
+            "    memcpy( ec_ctx->V, arm_ctx->V, sizeof(ec_ctx->V) );\n",
+            "    memcpy( ec_ctx->V, arm_ctx->V, sizeof(ec_ctx->V) );\n\n"
+            "    if ((arm_ctx->ContextFlags & CONTEXT_ARM64_FEX_YMMSTATE) == CONTEXT_ARM64_FEX_YMMSTATE)\n"
+            "    {\n"
+            "        CONTEXT_EX *ec_xctx = (CONTEXT_EX *)(ec_ctx + 1);\n"
+            "        YMMCONTEXT *ec_ymm = RtlLocateExtendedFeature( ec_xctx, XSTATE_AVX, NULL );\n"
+            "        memcpy( ec_ymm, arm_ctx->V + 16, sizeof(*ec_ymm) );\n"
+            "    }\n",
+            "memcpy( ec_ymm, arm_ctx->V + 16, sizeof(*ec_ymm) );",
+        ),
+    ]
+
+    for old, new, marker in replacements:
+        if marker in txt:
+            continue
+        txt2, ok, _ = apply_once(txt, old, new)
+        if ok:
+            txt = txt2
+            notes.append(f"FIXED: {rel} add {marker}")
+        else:
+            notes.append(f"WARN: {rel} could not place {marker}")
+
+    write_text(path, txt)
+    return notes
+
+
 def fallback_fix_winternl(wine_src):
     rel = "include/winternl.h"
     path = os.path.join(wine_src, rel)
@@ -286,6 +405,12 @@ def fallback_fix_wow64_syscall(wine_src):
 
 def apply_fallbacks(wine_src, failed_patch_names):
     notes = []
+
+    if "include_winnt_h.patch" in failed_patch_names:
+        notes.extend(fallback_fix_winnt(wine_src))
+
+    if "dlls_ntdll_unwind_h.patch" in failed_patch_names:
+        notes.extend(fallback_fix_unwind(wine_src))
 
     if "include_winternl_h.patch" in failed_patch_names:
         notes.extend(fallback_fix_winternl(wine_src))

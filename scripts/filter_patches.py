@@ -28,9 +28,9 @@ ALREADY_APPLIED = {
     "dlls_ntdll_unix_process_c.patch":      ("dlls/ntdll/unix/process.c",    "ProcessFexHardwareTso"),
 
     # test-bylaws patches
-    "test-bylaws/dlls_ntdll_unwind_h.patch":         ("dlls/ntdll/unwind.h",         "CONTEXT_ARM64_FEX_YMMSTATE"),
-    "test-bylaws/include_winnt_h.patch":             ("include/winnt.h",              "XSTATE_AVX512"),
-    "test-bylaws/dlls_ntdll_signal_arm64_c.patch":   ("dlls/ntdll/signal_arm64.c",    "SuspendLocalThread"),
+    "test-bylaws/dlls_ntdll_unwind_h.patch":         ("dlls/ntdll/unwind.h",         ["CONTEXT_ARM64_FEX_YMMSTATE", "CONTEXT_AMD64_XSTATE"]),
+    "test-bylaws/include_winnt_h.patch":             ("include/winnt.h",              "CONTEXT_ARM64_FEX_YMMSTATE"),
+    "test-bylaws/dlls_ntdll_signal_arm64_c.patch":   ("dlls/ntdll/signal_arm64.c",    ["RtlWow64SuspendThread", "suspend_remote_breakin"]),
     "test-bylaws/dlls_ntdll_signal_arm64ec_c.patch": ("dlls/ntdll/signal_arm64ec.c",  "ARM64EC_NT_XCONTEXT"),
     "test-bylaws/dlls_ntdll_signal_x86_64_c.patch":  ("dlls/ntdll/signal_x86_64.c",   "RtlWow64SuspendThread"),
     "test-bylaws/dlls_ntdll_ntdll_spec.patch":       ("dlls/ntdll/ntdll.spec",        "RtlWow64SuspendThread"),
@@ -96,3 +96,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
