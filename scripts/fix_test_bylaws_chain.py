@@ -129,17 +129,15 @@ def find_function_block(text, start_idx):
 
 
 def find_definition_starts(text, func_name):
-    # Match actual function definitions by name: func_name(...) {
-    # ignoring return-type formatting drift and avoiding plain prototypes/calls.
-    line_pattern = re.compile(
-        re.escape(func_name) + r"\s*\([^;{}]*\)\s*\{",
-        re.MULTILINE | re.DOTALL,
-    )
+    # Find candidate occurrences by function-name token, then keep only entries
+    # that map to a real brace-delimited block starting from the containing line.
+    name_pattern = re.compile(r"\b" + re.escape(func_name) + r"\s*\(")
     starts = []
-    for m in line_pattern.finditer(text):
-        b0, b1 = find_function_block(text, m.start())
-        if b0 >= 0 and b1 > b0:
-            starts.append(m.start())
+    for m in name_pattern.finditer(text):
+        line_start = text.rfind("\n", 0, m.start()) + 1
+        b0, b1 = find_function_block(text, line_start)
+        if b0 == line_start and b1 > b0:
+            starts.append(line_start)
     return starts
 
 
@@ -188,6 +186,27 @@ def normalize_signal_duplicates(wine_src):
             notes.append(f"FIXED: {rel} removed {total} duplicate suspend definition(s)")
 
     return notes
+
+
+def patch_already_present(wine_src, patch_name):
+    checks = {
+        "dlls_ntdll_signal_arm64_c.patch": ("dlls/ntdll/signal_arm64.c", ["suspend_remote_breakin", "RtlWow64SuspendThread"]),
+        "dlls_ntdll_signal_arm64ec_c.patch": ("dlls/ntdll/signal_arm64ec.c", ["RtlWow64SuspendThread"]),
+        "dlls_ntdll_signal_x86_64_c.patch": ("dlls/ntdll/signal_x86_64.c", ["RtlWow64SuspendThread"]),
+    }
+    if patch_name not in checks:
+        return False
+
+    rel, func_names = checks[patch_name]
+    path = os.path.join(wine_src, rel)
+    if not os.path.exists(path):
+        return False
+
+    txt = read_text(path)
+    for func_name in func_names:
+        if len(find_definition_starts(txt, func_name)) < 1:
+            return False
+    return True
 
 
 def try_apply_patch(wine_src, patch_path):
@@ -507,6 +526,9 @@ def main():
             had_hard_errors = True
             continue
 
+        if patch_already_present(wine_src, name):
+            print(f"BYLAWS OK: {name} (pre-existing definitions)")
+            continue
         ok, info = try_apply_patch(wine_src, p)
         if ok:
             print(f"BYLAWS OK: {name}")
