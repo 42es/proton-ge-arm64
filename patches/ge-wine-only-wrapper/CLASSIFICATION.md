@@ -163,3 +163,107 @@ Keep the first filter limited to non-Wayland GE patches:
 - `patches/proton/add-envvar-to-gate-media-converter.patch`
 - `patches/proton/build_failure_prevention-add-nls.patch`
 - all per-game hacks unless you are targeting that exact title
+## GE Staging Families
+
+GE also manually applies a number of `wine-staging` families from `protonprep-valve-staging.sh`. These matter more than the raw `wine` submodule history, because this is where a lot of GE-specific behavior actually comes from.
+
+### Strong Candidates
+
+- `winex11-Fixed-scancodes`
+  - Reason: directly improves X11 keycode to Windows scancode mapping and adds a `KeyboardScancodeDetect` switch.
+  - Relevance: high for GameNative because your stack still leans on `winex11.drv`, and bad scancode reconstruction is a real input failure mode.
+  - Notes: this is one of the better non-Wayland GE imports to test early.
+
+- `winex11-ime-check-thread-data`
+  - Reason: fixes a null-thread-data crash path in `X11DRV_get_ic`.
+  - Relevance: medium to high. Small, self-contained stability patch in X11/IME path.
+  - Notes: low-risk and worth trying.
+
+- `winex11-Window_Style`
+  - Reason: adjusts layered/composited window attribute handling in `window.c`.
+  - Relevance: medium. Small X11 window-management fix that may help odd border/compositing behavior.
+  - Notes: low-risk, but benefit is narrower than the scancode and IME fixes.
+
+- `loader-KeyboardLayouts`
+  - Reason: populates Windows keyboard layout registry entries in `loader/wine.inf.in`.
+  - Relevance: medium. It lines up with the scancode/layout work and may help games or launchers that expect a fuller keyboard layout registry.
+  - Notes: big registry patch, but conceptually simple.
+
+### Plausible But Lower Priority
+
+- `winex11.drv-Query_server_position`
+  - Reason: asks the X server for the real window rectangle before deciding to unmap a window.
+  - Relevance: medium. Potentially useful for window move/unmap edge cases.
+  - Notes: worth testing later, but not first-wave critical. Review carefully when porting because it changes window visibility decisions.
+
+- `user32-FlashWindowEx`
+  - Reason: adjusts `FlashWindowEx` return value / activation behavior.
+  - Relevance: low to medium. Real correctness fix, but not a likely blocker for GameNative game launch.
+  - Notes: safe to keep in reserve.
+
+- `wininet-Cleanup`
+  - Reason: fixes some cookie / header behavior in `wininet`.
+  - Relevance: low to medium. Could help specific launchers/web flows, but lower priority than WebView2 and crypto fixes already in the first-pass pack.
+  - Notes: keep as optional compatibility follow-up, not core stack material.
+
+### Weak Or Likely Skip
+
+- `ntdll-Hide_Wine_Exports`
+  - Reason: hides `wine_get_version`, `wine_get_build_id`, and `wine_get_host_version` based on registry config.
+  - Relevance: low for GameNative. It is mostly an anti-detection / app-quirk patch, not a platform fix.
+  - Notes: skip unless you find a title that explicitly keys off Wine export detection.
+
+- `ntdll-ext4-case-folder`
+  - Reason: tries to set ext4 casefold flag on `drive_c` at prefix creation time.
+  - Relevance: low and environment-dependent. On Android/GameNative this is likely a bad fit unless you know the backing filesystem supports and permits that ioctl path.
+  - Notes: do not import by default.
+
+- `kernel32-Debugger`
+  - Reason: always starts debugger on `WinSta0`.
+  - Relevance: low. This is debugger UX, not game/runtime compatibility.
+  - Notes: not worth carrying for GameNative.
+
+## Suggested Second-Wave Candidates
+
+After the current `ge-gamenative-firstpass` set is stable, the next GE additions worth testing are:
+
+1. `winex11-Fixed-scancodes`
+2. `winex11-ime-check-thread-data`
+3. `winex11-Window_Style`
+4. `loader-KeyboardLayouts`
+5. optionally `winex11.drv-Query_server_position`
+
+These are the most defensible non-Wayland GE staging imports for a GameNative/X11-based stack.
+
+## winex11-Fixed-scancodes Breakdown
+
+This family should not be imported wholesale.
+
+Recommended subset for GameNative:
+
+- `0003-winex11-Write-supported-keyboard-layout-list-in-regi.patch`
+  - writes `KeyboardLayoutList` into registry from X11 keyboard data
+- `0005-winex11-Use-the-user-configured-keyboard-layout-if-a.patch`
+  - allows configured layout override without relying only on auto-detect
+- `0007-winex11-Use-scancode-high-bit-to-set-KEYEVENTF_EXTEN.patch`
+  - fixes extended-key handling from scancode data
+- `0008-winex11-Support-fixed-X11-keycode-to-scancode-conver.patch`
+  - core fixed keycode->scancode mapping logic
+- optionally `0009-winex11-Disable-keyboard-scancode-auto-detection-by-.patch`
+  - probably a sane default for GameNative if the fixed mapping proves more reliable than auto-detect
+
+Usually skip for GameNative:
+
+- `0001-winecfg-Move-input-config-options-to-a-dedicated-tab.patch`
+- `0004-winecfg-Add-a-keyboard-layout-selection-config-optio.patch`
+- `0006-winecfg-Add-a-keyboard-scancode-detection-toggle-opt.patch`
+
+Reason:
+- these are UI/config-surface patches for `winecfg`
+- GameNative users are not primarily configuring this through `winecfg`
+- they add maintenance surface without being core runtime fixes
+
+Conditional patch:
+
+- `0002-winex11-Always-create-the-HKCU-configuration-registr.patch`
+  - only keep if later patches depend on that exact registry-key creation behavior in your current base

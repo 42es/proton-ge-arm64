@@ -445,8 +445,34 @@ def verify(wine_src):
                 print(f"VERIFY FAIL: marker '{m}' missing in {rel}")
                 ok = False
 
-    return ok
+    duplicate_checks = {
+        "dlls/ntdll/signal_arm64.c": [
+            "static void suspend_remote_breakin( HANDLE thread )",
+            "NTSTATUS WINAPI RtlWow64SuspendThread( HANDLE thread, ULONG *count )",
+        ],
+        "dlls/ntdll/signal_arm64ec.c": [
+            "static void suspend_remote_breakin( HANDLE thread )",
+            "NTSTATUS WINAPI RtlWow64SuspendThread( HANDLE thread, ULONG *count )",
+        ],
+        "dlls/ntdll/signal_x86_64.c": [
+            "static void suspend_remote_breakin( HANDLE thread )",
+            "NTSTATUS WINAPI RtlWow64SuspendThread( HANDLE thread, ULONG *count )",
+        ],
+    }
 
+    for rel, signatures in duplicate_checks.items():
+        path = os.path.join(wine_src, rel)
+        if not os.path.exists(path):
+            continue
+
+        txt = read_text(path)
+        for sig in signatures:
+            count = txt.count(sig)
+            if count > 1:
+                print(f"VERIFY FAIL: duplicate '{sig}' present {count} times in {rel}")
+                ok = False
+
+    return ok
 
 def main():
     if len(sys.argv) < 2:

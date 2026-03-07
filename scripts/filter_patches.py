@@ -11,8 +11,10 @@ import re
 import sys
 
 
-# Maps patch filename -> (file to check, marker or markers added by the patch).
-# If any marker is already in the file, the patch is skipped.
+# Maps patch filename -> (file to check, marker spec added by the patch).
+# Marker specs can be:
+# - a string: skip if the string is present
+# - a list/tuple/set of strings: skip if all markers are present
 ALREADY_APPLIED = {
     # Handled by fix_window_c.py - skip this patch so git apply never sees it.
     # The patch line numbers are too drifted against bleeding-edge to apply cleanly.
@@ -56,7 +58,7 @@ def is_already_applied(wine_src, rel_file, markers):
         text = f.read()
 
     if isinstance(markers, (list, tuple, set)):
-        return any(marker in text for marker in markers)
+        return all(marker in text for marker in markers)
     return markers in text
 
 
@@ -96,4 +98,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
