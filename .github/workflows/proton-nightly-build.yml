@@ -168,6 +168,11 @@ jobs:
           # the ntdll.so link step doesn't pull it in, causing undefined symbol.
           python3 scripts/fix_virtual_c.py wine-source
 
+          # Add missing forward declaration for initialize_xstate_features in
+          # wineboot.c - the call is present in proton_10.0 but no declaration
+          # is visible under -target aarch64-windows (PE build).
+          python3 scripts/fix_wineboot_xstate.py wine-source
+
           # Apply suspend-bypass chain directly when test-bylaws patches drift.
           python3 scripts/fix_suspend_chain.py wine-source
 
