@@ -128,14 +128,23 @@ def find_function_block(text, start_idx):
     return -1, -1
 
 
-def dedupe_function(text, func_name):
-    pattern = re.compile(
-        r"(^[ \t]*(?:static[ \t]+)?(?:NTSTATUS[ \t]+WINAPI[ \t]+|void[ \t]+)?"
+def find_definition_starts(text, func_name):
+    line_pattern = re.compile(
+        r"^[ \t]*(?:static[ \t]+)?(?:NTSTATUS[ \t]+WINAPI[ \t]+|void[ \t]+)?"
         + re.escape(func_name)
-        + r"[ \t]*\()",
+        + r"[ \t]*\(",
         re.MULTILINE,
     )
-    starts = [m.start(1) for m in pattern.finditer(text)]
+    starts = []
+    for m in line_pattern.finditer(text):
+        b0, b1 = find_function_block(text, m.start())
+        if b0 >= 0 and b1 > b0:
+            starts.append(m.start())
+    return starts
+
+
+def dedupe_function(text, func_name):
+    starts = find_definition_starts(text, func_name)
 
     if len(starts) <= 1:
         return text, 0
@@ -149,6 +158,7 @@ def dedupe_function(text, func_name):
             removed += 1
 
     return text, removed
+
 
 def normalize_signal_duplicates(wine_src):
     notes = []
@@ -446,32 +456,33 @@ def verify(wine_src):
 
     duplicate_checks = {
         "dlls/ntdll/signal_arm64.c": [
-            "static void suspend_remote_breakin( HANDLE thread )",
-            "NTSTATUS WINAPI RtlWow64SuspendThread( HANDLE thread, ULONG *count )",
+            "suspend_remote_breakin",
+            "RtlWow64SuspendThread",
         ],
         "dlls/ntdll/signal_arm64ec.c": [
-            "static void suspend_remote_breakin( HANDLE thread )",
-            "NTSTATUS WINAPI RtlWow64SuspendThread( HANDLE thread, ULONG *count )",
+            "suspend_remote_breakin",
+            "RtlWow64SuspendThread",
         ],
         "dlls/ntdll/signal_x86_64.c": [
-            "static void suspend_remote_breakin( HANDLE thread )",
-            "NTSTATUS WINAPI RtlWow64SuspendThread( HANDLE thread, ULONG *count )",
+            "suspend_remote_breakin",
+            "RtlWow64SuspendThread",
         ],
     }
 
-    for rel, signatures in duplicate_checks.items():
+    for rel, func_names in duplicate_checks.items():
         path = os.path.join(wine_src, rel)
         if not os.path.exists(path):
             continue
 
         txt = read_text(path)
-        for sig in signatures:
-            count = txt.count(sig)
+        for func_name in func_names:
+            count = len(find_definition_starts(txt, func_name))
             if count > 1:
-                print(f"VERIFY FAIL: duplicate '{sig}' present {count} times in {rel}")
+                print(f"VERIFY FAIL: duplicate definition of '{func_name}' present {count} times in {rel}")
                 ok = False
 
     return ok
+
 
 def main():
     if len(sys.argv) < 2:
