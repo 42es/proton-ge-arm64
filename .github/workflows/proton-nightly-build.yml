@@ -134,6 +134,16 @@ jobs:
             find wine-source/dlls -maxdepth 2 -type f | sed -n '1,120p'
             exit 1
           }
+
+          # Normalize imported GE wine tree into a standalone git repo so
+          # downstream git apply / reverse-check logic works even when the
+          # source came from a copied submodule checkout.
+          rm -rf wine-source/.git wine-source/.gitmodules
+          git init wine-source
+          git -C wine-source config user.email "actions@local"
+          git -C wine-source config user.name "GitHub Actions"
+          git -C wine-source add -A
+          git -C wine-source commit -qm "Normalize imported source tree"
       - name: Clone GameNative patches and build scripts
         run: |
           GN_REF="${{ github.event.inputs.gamenative_ref || 'proton_10.0' }}"
