@@ -15,6 +15,15 @@ import sys
 # Marker specs can be:
 # - a string: skip if the string is present
 # - a list/tuple/set of strings: skip if all markers are present
+# GE-style upfront exclusions: these signal patch pieces are already present in
+# the Valve proton_10.0 base we are building against, and reapplying them creates
+# duplicate definitions before the BYLAWS helper even runs.
+FORCE_SKIP = {
+    "test-bylaws/dlls_ntdll_signal_arm64_c.patch",
+    "test-bylaws/dlls_ntdll_signal_arm64ec_c.patch",
+    "test-bylaws/dlls_ntdll_signal_x86_64_c.patch",
+}
+
 ALREADY_APPLIED = {
     # Handled by fix_window_c.py - skip this patch so git apply never sees it.
     # The patch line numbers are too drifted against bleeding-edge to apply cleanly.
@@ -75,6 +84,17 @@ def main():
 
     skipped = []
     for patch_name, (rel_file, markers) in ALREADY_APPLIED.items():
+        if patch_name in FORCE_SKIP:
+            pattern = r'(\s*)"' + re.escape(patch_name) + r'"'
+            replacement = r'\1# (GE-style pre-exclude) # "' + patch_name + '"'
+            new_content = re.sub(pattern, replacement, content)
+            if new_content != content:
+                content = new_content
+                skipped.append(patch_name)
+                print(f"SKIP (GE-style pre-exclude): {patch_name}")
+            else:
+                print(f"NOT FOUND IN SCRIPT (no change): {patch_name}")
+            continue
         if is_already_applied(wine_src, rel_file, markers):
             # Comment out the patch entry in the PATCHES array
             # Matches: optional whitespace + quoted patch name + optional whitespace
