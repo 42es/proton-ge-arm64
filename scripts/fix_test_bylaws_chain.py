@@ -542,9 +542,6 @@ def main():
         for n in apply_fallbacks(wine_src, set(failed)):
             print(f"  {n}")
 
-    # Always normalize duplicate definitions left by fuzzy/partial patch application.
-    for n in normalize_signal_duplicates(wine_src):
-        print(f"  {n}")
 
     verified = verify(wine_src)
 
@@ -558,4 +555,5 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
 
