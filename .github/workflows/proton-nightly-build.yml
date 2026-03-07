@@ -119,6 +119,8 @@ jobs:
 
           if [ -f source-root/dlls/ntdll/loader.c ]; then
             mv source-root wine-source
+          elif [ -f source-root/wine/dlls/ntdll/loader.c ]; then
+            cp -a source-root/wine wine-source
           elif [ -f source-root/proton-wine/dlls/ntdll/loader.c ]; then
             cp -a source-root/proton-wine wine-source
           else
