@@ -149,38 +149,41 @@ jobs:
           git -C wine-staging-src fetch --depth=1 origin "$STAGING_SHA"
           git -C wine-staging-src checkout FETCH_HEAD
 
-          # protonprep-valve-staging.sh is designed to run from the GE-Proton root
-          # with subdirs: wine/, wine-staging/, patches/
-          # Symlink our checkouts into ge-proton/ so relative paths resolve correctly.
-          ln -sfn "$GITHUB_WORKSPACE/wine-source"      ge-proton/wine
-          ln -sfn "$GITHUB_WORKSPACE/wine-staging-src" ge-proton/wine-staging
-
           # Strip the git revert of e813ca577 (Remove configure/config.h.in).
           # That commit is not reachable in a shallow clone, and we run autogen.sh
           # ourselves afterward anyway which regenerates configure fresh.
           sed -i '/git revert.*e813ca5771658b00875924ab88d525322e50d39f/d' \
             ge-proton/patches/protonprep-valve-staging.sh
 
-          # protonprep is a plain bash script (no set -e). The PREP section
-          # pushd's into dxvk/gstreamer/etc which won't exist - those pushd's
-          # will fail and print errors but the script continues. The WINE
-          # PATCHING section (the part we care about) will run normally.
-          cd ge-proton
-          bash patches/protonprep-valve-staging.sh || true
+          # Rewrite all ../wine-staging and ../patches relative refs to absolute paths.
+          # protonprep pushd's into wine/ (a symlink), and bash resolves '..' against
+          # the real path of the symlink target, not the apparent parent. Using absolute
+          # paths avoids that entirely.
+          WINE_STAGING_ABS="$GITHUB_WORKSPACE/wine-staging-src"
+          PATCHES_ABS="$GITHUB_WORKSPACE/ge-proton/patches"
+          sed -i \
+            -e "s|\.\./wine-staging/|${WINE_STAGING_ABS}/|g" \
+            -e "s|\.\./patches/|${PATCHES_ABS}/|g" \
+            -e "s|patch -Np1|patch --batch --forward -Np1|g" \
+            ge-proton/patches/protonprep-valve-staging.sh
 
-          # Verify the wine section ran by checking a GE-specific marker
-          if ! grep -q "unity_crash_hotfix\|winepulse.fast.polling\|WINE_HOSTBLOCK" wine/dlls/ntdll/loader.c wine/programs/wineboot/wineboot.c 2>/dev/null; then
-            # Try a broader check - FSR or NV low latency must be present
-            grep -r "fshack\|nv_low_latency\|RtlWow64SuspendThread" wine/dlls/ >/dev/null 2>&1 || {
-              echo "ERROR: GE wine patches do not appear to have been applied"
-              exit 1
-            }
-          fi
-          echo "GE protonprep complete"
+          # protonprep expects cwd to have wine/ as a subdir. Use a real directory,
+          # not a symlink, so pushd/popd + relative paths work correctly.
+          mkdir -p ge-proton-run
+          ln -sfn "$GITHUB_WORKSPACE/wine-source" ge-proton-run/wine
+
+          # protonprep PREP section pushd's into dxvk/gstreamer/etc which won't
+          # exist - those will fail but the script has no set -e so it continues.
+          cd ge-proton-run
+          bash "$GITHUB_WORKSPACE/ge-proton/patches/protonprep-valve-staging.sh" || true
           cd "$GITHUB_WORKSPACE"
 
-          # Clean up symlinks
-          rm -f ge-proton/wine ge-proton/wine-staging
+          # Verify the wine patches ran - FSR must be present after GE patching
+          grep -r "fshack\|nv_low_latency" wine-source/dlls/ >/dev/null 2>&1 || {
+            echo "ERROR: GE wine patches do not appear to have been applied"
+            exit 1
+          }
+          echo "GE protonprep complete"
 
       - name: Clone GameNative patches and build scripts
         run: |
