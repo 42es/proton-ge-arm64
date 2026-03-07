@@ -4,7 +4,7 @@ Apply and verify additional BYLAWS patch chain pieces that commonly drift on
 bleeding-edge and can cause runtime hangs if partially missing.
 
 Usage: fix_test_bylaws_chain.py <wine-source-dir>
-Script rev: 2026-03-07-dedupefix-v2
+Script rev: 2026-03-07-signalfix-v3
 """
 import os
 import re
@@ -196,8 +196,8 @@ def normalize_signal_duplicates(wine_src):
 def patch_already_present(wine_src, patch_name):
     checks = {
         "dlls_ntdll_signal_arm64_c.patch": ("dlls/ntdll/signal_arm64.c", ["suspend_remote_breakin", "RtlWow64SuspendThread"]),
-        "dlls_ntdll_signal_arm64ec_c.patch": ("dlls/ntdll/signal_arm64ec.c", []),
-        "dlls_ntdll_signal_x86_64_c.patch": ("dlls/ntdll/signal_x86_64.c", []),
+        "dlls_ntdll_signal_arm64ec_c.patch": ("dlls/ntdll/signal_arm64ec.c", ["RtlWow64SuspendThread"]),
+        "dlls_ntdll_signal_x86_64_c.patch": ("dlls/ntdll/signal_x86_64.c", ["RtlWow64SuspendThread"]),
     }
     if patch_name not in checks:
         return False

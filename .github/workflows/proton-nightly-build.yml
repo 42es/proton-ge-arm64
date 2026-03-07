@@ -181,8 +181,8 @@ jobs:
           echo "=== fix_test_bylaws_chain.py header ==="
           sed -n '1,40p' scripts/fix_test_bylaws_chain.py
           echo '=== fix_test_bylaws_chain.py dedupe markers ==='
-          grep -n 'Script rev: 2026-03-07-dedupefix-v2\|def find_definition_starts\|def dedupe_function\|duplicate definition of' scripts/fix_test_bylaws_chain.py || true
-          if ! grep -q 'Script rev: 2026-03-07-dedupefix-v2' scripts/fix_test_bylaws_chain.py; then echo 'ERROR: stale fix_test_bylaws_chain.py in runner'; exit 97; fi
+          grep -n 'Script rev: 2026-03-07-signalfix-v3\|def find_definition_starts\|def dedupe_function\|duplicate definition of' scripts/fix_test_bylaws_chain.py || true
+          if ! grep -q 'Script rev: 2026-03-07-signalfix-v3' scripts/fix_test_bylaws_chain.py; then echo 'ERROR: stale fix_test_bylaws_chain.py in runner'; exit 97; fi
           python3 scripts/fix_test_bylaws_chain.py wine-source
           echo "=== post-fix signal duplicate counts ==="
           for f in \
