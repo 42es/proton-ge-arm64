@@ -34,7 +34,7 @@ on:
       ge_ref:
         description: 'GE-Proton tag/branch to pull patches from'
         required: false
-        default: 'GE-Proton10-32'
+        default: 'GE-Proton10-34'
         type: string
       kernel_compat_wcp_url:
         description: 'Optional URL to known-good donor .wcp for kernel32/ntdll overlay'
